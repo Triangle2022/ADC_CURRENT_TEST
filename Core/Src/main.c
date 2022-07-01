@@ -69,22 +69,26 @@ double a_current;
 double b_current;
 double c_current;
 
+/////////////////configuration value//////////////////
 const int cpr = 2048; //resolution of the encoder
 const float pi = 3.14159265358; //M_PI
 const int pole_pair = 10; //10 pole pair
 const int period = 250; //250us
 
+//For the angle calculation(global variable)
 int phase;
 int multiply;
-
 float mech_angle;
 float elec_angle;
-float control_angle;
+float pole_pair_angle;
 
-float angle;
+//For the timing calculation(global variable)
 float t1;
 float t2;
 float t3;
+
+
+float angle;
 
 int32_t a_current_2;
 int32_t b_current_2;
@@ -265,36 +269,45 @@ void update_encoder()
 	encoder = (TIM2->CNT>>2);
 	if(encoder > 2048)
 	{
-		encoder = (encoder)%2048;
+		encoder = (encoder%2048);
 	}
-
-	//intialialize the current angle
-	mech_angle = encoder*(2*pi/cpr);
-	multiply = (int)(((mech_angle*(float)pole_pair)/(2*M_PI)));
-	elec_angle = (mech_angle*pole_pair)-(float)((2*M_PI)*(float)multiply);
-
-	//control angle calculation
-	multiply = (int)(((elec_angle)/(pi/3)));
-	control_angle = (elec_angle)-(float)((pi/3)*(float)multiply);
-
-	//calculate the phase
-	phase = (elec_angle/(pi/3))+1;
 }
 
+void calculation(int encoder)
+{
+    //set encoder val between 1,2048
+    while (encoder < 1) encoder += 2048;
+    while (encoder > 2048) encoder -= 2048;
+
+    encoder = (cpr+1)-encoder; // ->when the reverse should be activated
+
+    //basic angle calculation
+    mech_angle  = encoder*(2*pi/cpr);
+    multiply = (int)(((mech_angle*pole_pair)/(2*pi)));
+    elec_angle = (mech_angle*pole_pair)-(float)((2*pi)*(float)multiply);
+
+    //control angle calculation
+    multiply = (int)(((elec_angle)/(pi/3)));
+    pole_pair_angle = (elec_angle)-(float)((pi/3)*(float)multiply);
+    //control angle should be have pi/4 offset compare to the pole_pair_angle
+
+    //calculate the phase
+    phase = (elec_angle/(pi/3))+1;
+
+    t1 = period*sin(M_PI/3 - pole_pair_angle);
+    t2 = period*sin(pole_pair_angle);
+    t3 = period-t1-t2;
+
+    //std::cout << mech_angle << "t1  " << t1 << "  t2  " << t2 << "  t3  " << t3 << " total " <<  t1+t2+t3 << "phase "<< phase << "  angle "<< encoder << "pole_pair_angle " << pole_pair_angle <<std::endl;
+}
 void delay_us (uint16_t us)
 {
 	__HAL_TIM_SET_COUNTER(&htim12,0);  // set the counter value a 0
 	while (__HAL_TIM_GET_COUNTER(&htim12) < us);  // wait for the counter to reach the us input in the parameter
 }
 
-void drive(int voltage,int angle) //main driving function
+void drive(int voltage,int phase) //main driving function
 {
-
-	//svpwm phase period calculation
-	t1 = period*FastSin(M_PI/3 - (float)control_angle);
-	t2 = period*FastSin((float)control_angle);
-	t3 = period-t1-t2;
-
 	switch (phase) {
 		case 1:
 			execute_phase(0,voltage);
@@ -551,8 +564,7 @@ int main(void)
 
     /* USER CODE BEGIN 3 */
 	  update_encoder();
-	  encoder_updated = 359-((int)((encoder*1.7578125)))%360;
-	  drive(speed2,(encoder_updated+270)%360);
+	  drive(speed2,phase);
 	  //drive(2000,30);
 
 //	  		if(HAL_GetTick() - tick > 2000L)
